@@ -150,11 +150,31 @@ export default function TodoApp() {
   };
 
   const toggleTodo = (id: string) => {
+    const todoToToggle = todos.find((todo) => todo.id === id);
+    const wasCompleted = todoToToggle?.completed || false;
+
     const updatedTodos = todos.map((todo) =>
       todo.id === id ? { ...todo, completed: !todo.completed } : todo
     );
     console.log("Todo toggled:", id);
     setTodos(updatedTodos);
+
+    // Update the contribution map if the todo is for today
+    if (todoToToggle && todoToToggle.date === today) {
+      // If the todo was not completed and is now being completed, increment
+      // If the todo was completed and is now being uncompleted, decrement
+      if (window.updateContributionMap) {
+        const shouldIncrement = !wasCompleted;
+        console.log(
+          `Updating contribution map: ${
+            shouldIncrement ? "increment" : "decrement"
+          }`
+        );
+        window.updateContributionMap(shouldIncrement);
+      } else {
+        console.warn("updateContributionMap function is not available");
+      }
+    }
 
     // No manual stats update needed - the useEffect will handle it
   };

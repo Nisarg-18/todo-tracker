@@ -29,7 +29,8 @@ interface ContributionMapProps {
 }
 
 // Constants for local storage
-const LOCAL_STORAGE_KEY = "contribution-tracker-test-data";
+const LOCAL_STORAGE_KEY = "contribution-tracker-stats";
+const TODO_COMPLETION_EVENT = "todo-completion-update";
 
 export function ContributionMap({ stats: initialStats }: ContributionMapProps) {
   const [hoveredDay, setHoveredDay] = useState<DailyStats | null>(null);
@@ -44,14 +45,61 @@ export function ContributionMap({ stats: initialStats }: ContributionMapProps) {
 
     // Load stats from localStorage on client-side only
     const savedStats = localStorage.getItem(LOCAL_STORAGE_KEY);
+    // Also check for stats in the main app's localStorage key
+    const appStats = localStorage.getItem("stats");
+
     if (savedStats) {
       try {
         setStats(JSON.parse(savedStats));
       } catch (e) {
         console.error("Failed to parse stored stats:", e);
       }
+    } else if (appStats) {
+      // If no contribution-specific stats but app stats exist, use those
+      try {
+        setStats(JSON.parse(appStats));
+      } catch (e) {
+        console.error("Failed to parse app stats:", e);
+      }
     }
   }, []);
+
+  // Add a listener for todo completion events
+  useEffect(() => {
+    if (!isMounted) return;
+
+    // Function to handle todo completion events
+    const handleTodoCompletion = () => {
+      const savedStats = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (savedStats) {
+        try {
+          const updatedStats = JSON.parse(savedStats);
+          setStats(updatedStats);
+          console.log(
+            "Updated contribution map from storage event:",
+            updatedStats
+          );
+        } catch (e) {
+          console.error("Failed to parse stored stats:", e);
+        }
+      }
+    };
+
+    // Add event listener for storage events
+    window.addEventListener("storage", (event) => {
+      if (event.key === TODO_COMPLETION_EVENT) {
+        handleTodoCompletion();
+      }
+    });
+
+    // Custom event for same-window updates
+    window.addEventListener(TODO_COMPLETION_EVENT, handleTodoCompletion);
+
+    return () => {
+      window.removeEventListener("storage", handleTodoCompletion);
+      window.removeEventListener(TODO_COMPLETION_EVENT, handleTodoCompletion);
+    };
+  }, [isMounted]);
 
   // Save stats to localStorage whenever they change, but only after mounting
   useEffect(() => {
@@ -66,6 +114,66 @@ export function ContributionMap({ stats: initialStats }: ContributionMapProps) {
       console.log("ContributionMap using stats:", stats);
     }
   }, [stats, isMounted]);
+
+  // Add a public method to update stats for today
+  useEffect(() => {
+    if (!isMounted) return;
+
+    // Add a method to the window object that other components can call
+    window.updateContributionMap = (increment = true) => {
+      const today = format(new Date(), "yyyy-MM-dd");
+      console.log(
+        `Updating contribution map for ${today}, increment: ${increment}`
+      );
+
+      setStats((prevStats) => {
+        const existingIndex = prevStats.findIndex((s) => s.date === today);
+        const newStats = [...prevStats];
+
+        if (existingIndex >= 0) {
+          // Update existing date
+          const currentCompleted = prevStats[existingIndex].completed;
+          newStats[existingIndex] = {
+            ...newStats[existingIndex],
+            completed: increment
+              ? currentCompleted + 1
+              : Math.max(currentCompleted - 1, 0),
+            percentage:
+              ((increment
+                ? currentCompleted + 1
+                : Math.max(currentCompleted - 1, 0)) /
+                Math.max(newStats[existingIndex].total, 1)) *
+              100,
+          };
+        } else if (increment) {
+          // Add new date (only for increments)
+          newStats.push({
+            date: today,
+            completed: 1,
+            total: 1,
+            percentage: 100,
+          });
+        }
+
+        // Save to localStorage and trigger the event
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newStats));
+        // Also update the main app's stats in localStorage
+        localStorage.setItem("stats", JSON.stringify(newStats));
+        // Trigger event for other instances of the component
+        localStorage.setItem(TODO_COMPLETION_EVENT, Date.now().toString());
+        // Dispatch custom event for same-window updates
+        window.dispatchEvent(new Event(TODO_COMPLETION_EVENT));
+
+        console.log("Updated stats:", newStats);
+        return newStats;
+      });
+    };
+
+    return () => {
+      // Clean up
+      delete window.updateContributionMap;
+    };
+  }, [isMounted]);
 
   // Use useMemo for all date calculations to ensure they're stable
   const { statsMap, endDate, startDate, weeks, months, allDates } =
@@ -395,4 +503,11 @@ export function ContributionMap({ stats: initialStats }: ContributionMapProps) {
       )} */}
     </div>
   );
+}
+
+// Add this to make TypeScript happy with our window property
+declare global {
+  interface Window {
+    updateContributionMap?: (increment?: boolean) => void;
+  }
 }
