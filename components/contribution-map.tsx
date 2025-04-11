@@ -28,13 +28,44 @@ interface ContributionMapProps {
   stats: DailyStats[];
 }
 
-export function ContributionMap({ stats }: ContributionMapProps) {
+// Constants for local storage
+const LOCAL_STORAGE_KEY = "contribution-tracker-test-data";
+
+export function ContributionMap({ stats: initialStats }: ContributionMapProps) {
   const [hoveredDay, setHoveredDay] = useState<DailyStats | null>(null);
+  // Initialize with initialStats, then load from localStorage in useEffect
+  const [stats, setStats] = useState<DailyStats[]>(initialStats);
+  // Track if component is mounted (client-side)
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Mark component as mounted (client-side only)
+  useEffect(() => {
+    setIsMounted(true);
+
+    // Load stats from localStorage on client-side only
+    const savedStats = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (savedStats) {
+      try {
+        setStats(JSON.parse(savedStats));
+      } catch (e) {
+        console.error("Failed to parse stored stats:", e);
+      }
+    }
+  }, []);
+
+  // Save stats to localStorage whenever they change, but only after mounting
+  useEffect(() => {
+    if (isMounted) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stats));
+    }
+  }, [stats, isMounted]);
 
   // Log when stats are received
   useEffect(() => {
-    console.log("ContributionMap received stats:", stats);
-  }, [stats]);
+    if (isMounted) {
+      console.log("ContributionMap using stats:", stats);
+    }
+  }, [stats, isMounted]);
 
   // Use useMemo for all date calculations to ensure they're stable
   const { statsMap, endDate, startDate, weeks, months, allDates } =
@@ -107,6 +138,9 @@ export function ContributionMap({ stats }: ContributionMapProps) {
 
     const completed = day.completed;
 
+    // Add console log during testing to see completion count
+    console.log(`Date: ${day.date}, Completed: ${completed}`);
+
     if (completed >= 10) return "bg-[#39d353] dark:bg-[#39d353]";
     if (completed >= 7) return "bg-[#26a641] dark:bg-[#26a641]";
     if (completed >= 4) return "bg-[#006d32] dark:bg-[#006d32]";
@@ -167,6 +201,11 @@ export function ContributionMap({ stats }: ContributionMapProps) {
                     const dayStats = statsMap.get(dateStr);
                     const isFutureDate = date > endDate;
 
+                    // For debugging - log found dayStats for each date
+                    if (dayStats && dayStats.completed > 0) {
+                      console.log(`Found stats for ${dateStr}:`, dayStats);
+                    }
+
                     return (
                       <TooltipProvider key={dateStr}>
                         <Tooltip>
@@ -176,10 +215,14 @@ export function ContributionMap({ stats }: ContributionMapProps) {
                                 isFutureDate
                                   ? "bg-transparent"
                                   : getColorClass(dayStats)
-                              }`}
-                              onMouseEnter={() =>
-                                setHoveredDay(dayStats || null)
-                              }
+                              } hover:ring-2 hover:ring-offset-1 hover:ring-gray-400`}
+                              onMouseEnter={() => {
+                                console.log(
+                                  `Hovering over ${dateStr}`,
+                                  dayStats
+                                );
+                                setHoveredDay(dayStats || null);
+                              }}
                               onMouseLeave={() => setHoveredDay(null)}
                               aria-label={formatTooltip(dayStats, date)}
                             />
@@ -216,10 +259,10 @@ export function ContributionMap({ stats }: ContributionMapProps) {
         <span>More</span>
       </div>
 
-      {/* Current selection info */}
-      <div className="text-sm">
+      {/* Current selection info - Make more visible */}
+      <div className="text-sm p-2 border rounded-md text-center min-h-[40px]">
         {hoveredDay ? (
-          <div className="text-center">
+          <div>
             <span className="font-medium">
               {format(parseISO(hoveredDay.date), "MMMM d, yyyy")}:
             </span>{" "}
@@ -233,22 +276,123 @@ export function ContributionMap({ stats }: ContributionMapProps) {
             )}
           </div>
         ) : (
-          <div className="text-center text-xs text-muted-foreground">
+          <div className="text-muted-foreground">
             Hover over cells to see details
           </div>
         )}
       </div>
 
-      {/* Add a debug display during development */}
-      <div className="hidden">
-        <pre>
-          {JSON.stringify(
-            stats.filter((s) => s.total > 0),
-            null,
-            2
-          )}
-        </pre>
-      </div>
+      {/* Re-enable the test panel for debugging */}
+      {/* {isMounted && (
+        <div className="border rounded-md p-4 mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium">Contribution Map Test Panel</h3>
+            <button
+              className="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+              onClick={() => {
+                // Create a copy to avoid mutating props directly
+                const testStats = [...stats];
+
+                // Add 10 random contributions in the past year
+                for (let i = 0; i < 10; i++) {
+                  const randomDayOffset = Math.floor(Math.random() * 364);
+                  const randomDate = format(
+                    subDays(endDate, randomDayOffset),
+                    "yyyy-MM-dd"
+                  );
+                  const randomCompletions = Math.floor(Math.random() * 12) + 1;
+
+                  // Check if date already exists
+                  const existingIndex = testStats.findIndex(
+                    (s) => s.date === randomDate
+                  );
+
+                  if (existingIndex >= 0) {
+                    // Update existing date
+                    testStats[existingIndex] = {
+                      ...testStats[existingIndex],
+                      completed: randomCompletions,
+                      percentage:
+                        (randomCompletions / testStats[existingIndex].total) *
+                        100,
+                    };
+                  } else {
+                    // Add new date
+                    testStats.push({
+                      date: randomDate,
+                      completed: randomCompletions,
+                      total: randomCompletions,
+                      percentage: 100,
+                    });
+                  }
+                }
+
+                // Update the internal state to reflect the test data
+                setStats(testStats);
+                console.log("Generated test data:", testStats);
+
+                // Show confirmation message
+                alert(
+                  `Added test data for 10 random dates. The contribution map has been updated.`
+                );
+              }}
+            >
+              Generate Random Test Data
+            </button>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            <p>
+              This panel is for testing only. Click the button to generate
+              random contribution data and see it reflected in the contribution
+              map above.
+            </p>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button
+              className="text-xs px-2 py-1 bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+              onClick={() => {
+                // Reset to original data
+                setStats(initialStats);
+                localStorage.removeItem(LOCAL_STORAGE_KEY);
+                alert("Test data has been reset");
+              }}
+            >
+              Reset Test Data
+            </button>
+            <button
+              className="text-xs px-2 py-1 bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 rounded hover:bg-gray-300 dark:hover:bg-gray-600"
+              onClick={() => {
+                // Add a single contribution to today
+                const today = format(new Date(), "yyyy-MM-dd");
+                const existingIndex = stats.findIndex((s) => s.date === today);
+
+                const newStats = [...stats];
+
+                if (existingIndex >= 0) {
+                  // Increment existing date
+                  newStats[existingIndex] = {
+                    ...newStats[existingIndex],
+                    completed: newStats[existingIndex].completed + 1,
+                    total: newStats[existingIndex].total + 1,
+                  };
+                } else {
+                  // Add new date
+                  newStats.push({
+                    date: today,
+                    completed: 1,
+                    total: 1,
+                    percentage: 100,
+                  });
+                }
+
+                setStats(newStats);
+              }}
+            >
+              Add Today's Contribution
+            </button>
+          </div>
+        </div>
+      )} */}
     </div>
   );
 }

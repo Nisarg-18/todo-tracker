@@ -92,26 +92,20 @@ export default function TodoApp() {
       ];
     }
 
-    // Reset all counts
-    newStats = newStats.map((stat) => ({
-      ...stat,
-      completed: 0,
-      total: 0,
-      percentage: 0, // We'll use this to store the contribution level (0-4)
-    }));
-
-    const statsMap = new Map<string, number>();
-    newStats.forEach((stat, index) => {
-      statsMap.set(stat.date, index);
+    // Create a map of dates to preserve existing data
+    const statsMap = new Map<string, DailyStats>();
+    newStats.forEach((stat) => {
+      statsMap.set(stat.date, { ...stat, completed: 0, total: 0 });
     });
 
     // Count completed todos for each day
     todos.forEach((todo) => {
       if (todo.completed) {
         // Only count completed todos
-        const statIndex = statsMap.get(todo.date);
-        if (statIndex !== undefined) {
-          const stat = newStats[statIndex];
+        const date = todo.date;
+        const stat = statsMap.get(date);
+
+        if (stat) {
           stat.completed += 1;
 
           // Set contribution levels based on number of completed todos
@@ -127,6 +121,12 @@ export default function TodoApp() {
           else stat.percentage = 100;
         }
       }
+    });
+
+    // Update the stats array with the new values
+    newStats = newStats.map((stat) => {
+      const updatedStat = statsMap.get(stat.date);
+      return updatedStat || stat;
     });
 
     setStats(newStats);
